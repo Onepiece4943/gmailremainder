@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const description = document.getElementById('description').value;
         const reminderTime = document.getElementById('reminder-time').value;
         const email = document.getElementById('email').value;
+        const isDaily = document.getElementById('daily-reminder').checked;
         
         // Validate reminder time is in the future
         const now = new Date();
@@ -50,7 +51,8 @@ document.addEventListener('DOMContentLoaded', function() {
             description: description,
             reminderTime: reminderTime,
             email: email,
-            sent: false
+            sent: false,
+            isDaily: isDaily
         };
         
         // Save reminder to localStorage
@@ -60,7 +62,7 @@ document.addEventListener('DOMContentLoaded', function() {
         scheduleReminder(reminder);
         
         // Show success message
-        showStatusMessage('Reminder set successfully! You will receive an email at the specified time.', 'success');
+        showStatusMessage(`Reminder set successfully! You will receive an email at the specified time${isDaily ? ' and every 24 hours thereafter' : ''}.`, 'success');
         
         // Reset form
         form.reset();
@@ -90,21 +92,28 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        reminders.forEach(reminder => {
-            if (!reminder.sent) {
-                const reminderItem = document.createElement('div');
-                reminderItem.className = 'reminder-item';
-                reminderItem.innerHTML = `
-                    <div class="reminder-info">
-                        <div class="reminder-task">${reminder.taskName}</div>
-                        <div class="reminder-time">${formatDateTime(reminder.reminderTime)}</div>
-                    </div>
-                    <button class="delete-reminder" data-id="${reminder.id}">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                `;
-                remindersList.appendChild(reminderItem);
-            }
+        // Filter out sent reminders that aren't daily
+        const activeReminders = reminders.filter(r => !r.sent || r.isDaily);
+        
+        if (activeReminders.length === 0) {
+            remindersList.innerHTML = '<p style="text-align: center; color: var(--gray-color);">No active reminders</p>';
+            return;
+        }
+        
+        activeReminders.forEach(reminder => {
+            const reminderItem = document.createElement('div');
+            reminderItem.className = 'reminder-item';
+            reminderItem.innerHTML = `
+                <div class="reminder-info">
+                    <div class="reminder-task">${reminder.taskName}</div>
+                    <div class="reminder-time">${formatDateTime(reminder.reminderTime)}</div>
+                    ${reminder.isDaily ? '<div class="daily-badge"><i class="fas fa-sync-alt"></i> Daily</div>' : ''}
+                </div>
+                <button class="delete-reminder" data-id="${reminder.id}">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+            remindersList.appendChild(reminderItem);
         });
         
         // Add event listeners to delete buttons
@@ -121,13 +130,14 @@ document.addEventListener('DOMContentLoaded', function() {
         reminders = reminders.filter(reminder => reminder.id !== id);
         localStorage.setItem('reminders', JSON.stringify(reminders));
         loadReminders();
+        showStatusMessage('Reminder deleted successfully', 'success');
     }
     
     // Function to schedule all reminders (run on page load)
     function scheduleAllReminders() {
         const reminders = JSON.parse(localStorage.getItem('reminders')) || [];
         reminders.forEach(reminder => {
-            if (!reminder.sent) {
+            if (!reminder.sent || reminder.isDaily) {
                 scheduleReminder(reminder);
             }
         });
@@ -140,15 +150,30 @@ document.addEventListener('DOMContentLoaded', function() {
         const timeUntilReminder = reminderTime - now;
         
         if (timeUntilReminder <= 0) {
-            // If time has passed, mark as sent
-            markReminderAsSent(reminder.id);
+            // If time has passed, mark as sent (unless it's a daily reminder)
+            if (!reminder.isDaily) {
+                markReminderAsSent(reminder.id);
+            }
             return;
         }
         
         // Set timeout to send email
         setTimeout(() => {
             sendReminderEmail(reminder);
-            markReminderAsSent(reminder.id);
+            
+            if (reminder.isDaily) {
+                // Reschedule for 24 hours later if daily reminder
+                const newReminder = {
+                    ...reminder,
+                    id: Date.now().toString(),
+                    reminderTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+                };
+                saveReminder(newReminder);
+                scheduleReminder(newReminder);
+            } else {
+                markReminderAsSent(reminder.id);
+            }
+            
             loadReminders();
         }, timeUntilReminder);
     }
@@ -199,6 +224,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function showStatusMessage(message, type) {
         statusMessage.textContent = message;
         statusMessage.className = `status-message ${type}`;
+        statusMessage.style.display = 'block';
         
         // Hide message after 5 seconds
         setTimeout(() => {
